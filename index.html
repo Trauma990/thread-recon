@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thread Recon</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="identity.js"></script>
+  <script defer src="ui.js"></script>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <img src="icon-128.png" alt="" width="48" height="48">
+      <div>
+        <p class="eyebrow">OSINT / FACEBOOK</p>
+        <h1>Thread Recon</h1>
+        <p class="subtitle">Trace comments and replies on a post.</p>
+      </div>
+    </header>
+
+    <form id="search" class="surface">
+      <h2 class="section-label">01 / Target</h2>
+      <div class="field-title">
+        <label for="post">Post URL</label>
+        <button id="current" class="quiet" type="button">Use current tab</button>
+      </div>
+      <input id="post" type="url" dir="ltr" required placeholder="https://www.facebook.com/…" autocomplete="off">
+      <label for="account">Account or display name</label>
+      <input id="account" dir="auto" required placeholder="123456789 / @username / Ahrun" autocomplete="off">
+      <p class="hint">Use a numeric ID, @username, profile URL, or display name.</p>
+      <label class="preference"><input id="notify" type="checkbox" checked> Notify me on the first match</label>
+      <div class="actions">
+        <button id="start" class="primary">Run scan</button>
+        <button id="stop" type="button" hidden>Stop</button>
+      </div>
+    </form>
+
+    <section id="activity" class="surface" aria-labelledby="activity-title" hidden>
+      <h2 class="section-label" id="activity-title">02 / Scan status</h2>
+      <div class="activity-line"><span id="indicator"></span><p id="status" role="status" aria-live="polite"></p></div>
+      <p id="scan-work" class="scan-work hint" hidden></p>
+      <div id="stats" class="stats" hidden>
+        <div><strong id="comments">0</strong><span>Comments</span></div>
+        <div><strong id="replies">0</strong><span>Replies</span></div>
+        <div><strong id="found">0</strong><span>Matches</span></div>
+      </div>
+      <details id="coverage" hidden>
+        <summary>Scan coverage</summary>
+        <dl id="coverage-metrics" class="coverage-metrics">
+          <div><dt>Observed unopened reply branches</dt><dd id="unopened">—</dd></div>
+          <div><dt>Remaining comment load controls</dt><dd id="pending-pages">—</dd></div>
+        </dl>
+        <p class="hint">Counts reflect controls the scanner detected in Facebook.</p>
+        <ul id="notes"></ul>
+      </details>
+    </section>
+
+    <section id="results" aria-labelledby="results-title" hidden>
+      <div class="field-title">
+        <h2 id="results-title" class="section-label">03 / Findings</h2>
+        <div class="actions">
+          <button id="copy" type="button" class="quiet">Copy report</button>
+          <button id="export" type="button" class="quiet">Export CSV</button>
+        </div>
+      </div>
+      <label for="findings-search" class="visually-hidden">Search findings</label>
+      <input id="findings-search" type="search" placeholder="Search author, text, or thread…" autocomplete="off">
+      <label for="filter" class="visually-hidden">Filter findings by type</label>
+      <select id="filter">
+        <option value="all">All findings</option>
+        <option value="comment">Top-level comments</option>
+        <option value="reply">Replies only</option>
+      </select>
+      <p id="visible-count" class="hint"></p>
+      <div id="report"></div>
+      <p id="copy-status" role="status" class="hint"></p>
+    </section>
+
+    <footer><span aria-hidden="true">●</span> Scans run locally using your Facebook session.</footer>
+  </main>
+</body>
+</html>
