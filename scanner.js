@@ -1,5 +1,7 @@
-globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
-  const {facebookUrl, accountLink, postKeys, postUrl} = globalThis.facebookIdentity;
+globalThis.scanFacebookComments = async (runId, accounts, requestedPost, maxMs = 25 * 60_000) => {
+  const {facebookUrl, accountLink, targetMatcher, postKeys, postUrl} = globalThis.facebookIdentity;
+  const targets = Array.isArray(accounts) ? accounts : [accounts];
+  const matchTargets = targetMatcher(targets);
   const rows = new Map();
   const rowKeys = new WeakMap();
   const branchKeys = new WeakMap();
@@ -13,6 +15,7 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
   const controls = 'button, [role="button"], [role="combobox"], [role="menuitem"], [role="menuitemradio"], [role="option"], [tabindex="0"], a[href="#"]';
   const replyControl = /^(?:(?:view|see|show|load)\s+(?:(?:all|\d[\d,.]*|more|previous|earlier|other|\S+’s|\S+'s)\s+)*(?:reply|replies)(?:\s+.*)?|\d[\d,.]*\s+repl(?:y|ies)|(?:مشاهده|نمایش|دیدن|بارگیری)\s+.*پاسخ.*)$/i;
   const moreControl = /^(?:(?:view|see|show|load)\s+(?:(?:\d[\d,.]*|more|previous|earlier|older|other|all)\s+)+comments?|(?:مشاهده|نمایش|دیدن|بارگیری)\s+.*(?:نظر|دیدگاه|کامنت).*)$/i;
+  const moreText = /^(?:see more|show more|بیشتر ببینید)$/i;
   const allComments = /^(?:all comments|همه[ٔ‌ی\s]*\s*(?:نظرها|نظرات|دیدگاه‌ها|کامنت‌ها))$/i;
   const sort = /^(?:most relevant|newest(?: first)?|oldest(?: first)?|most recent|مرتبط‌ترین|بیشترین ارتباط|جدیدترین|قدیمی‌ترین)(?:\s+(?:comments|نظرها|نظرات))?$/i;
   const commentsTab = /^(?:comments|نظرها|نظرات|دیدگاه‌ها|کامنت‌ها)$/i;
@@ -20,7 +23,6 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
   const clean = value => (value ?? "").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").replace(/\s+/g, " ").trim();
   const visible = element => element.getClientRects().length && getComputedStyle(element).visibility === "visible";
   const normalizedName = value => clean(value).normalize("NFKC").toLowerCase();
-  const displayName = normalizedName(account.displayName);
   const controlText = element => [
     element.getAttribute("aria-label"), element.innerText, element.innerText?.split("\n")[0]
   ].map(value => digits(clean(value))).filter(Boolean);
@@ -34,10 +36,13 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
   let lastRow;
   let lastProgress = 0;
   let pendingPages = 0;
+  let pendingText = 0;
   let lastBranchAction;
   let nextBranch = 0;
   let repliesSeen = 0;
   let commentsSeen = 0;
+  let activity;
+  let actions = 0;
 
   globalThis.facebookScanControl = {runId, stopped: false};
   const stopped = () => globalThis.facebookScanControl?.runId !== runId || globalThis.facebookScanControl.stopped;
@@ -140,11 +145,14 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
       const type = replyId || nested ? "reply" : declaredType || "comment";
       const {author, name, authorUrl} = authorDetails(row, anchors, declaredType);
       const profile = author ? accountKeys(author) : null;
-      const content = owned(row, '[dir="auto"]').filter(element =>
+      const content = owned(row, '[dir="auto"], [data-ad-comet-preview="message"], [data-ad-preview="message"]').filter(element =>
         visible(element) && clean(element.innerText) && !element.closest(controls) &&
         !element.closest("a") && (!author || Boolean(author.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)));
       const text = content.filter(element => !content.some(other => other !== element && element.contains(other)))
         .map(element => element.innerText.trim()).join("\n");
+      const mentions = anchors.filter(anchor => anchor !== author && accountKeys(anchor) &&
+        content.some(element => element.contains(anchor)))
+        .map(anchor => ({profile: accountKeys(anchor), name: clean(anchor.innerText), url: anchor.href}));
       const parentUrl = nested ? permalink(links(parent)) : null;
       const parentId = type === "reply" ? (replyId ? commentId : parentUrl?.searchParams.get("comment_id")) : null;
       const parentKey = type === "reply" && nested ? rowKeys.get(parent) : null;
@@ -163,6 +171,7 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
       mounted.add(key);
       rows.set(key, {
         type, name: name || previous?.name, profile: profile ?? previous?.profile, text: text || previous?.text || "",
+        mentions: mentions.length ? mentions : previous?.mentions ?? [],
         authorUrl: authorUrl || previous?.authorUrl,
         url: url?.href || previous?.url, parentId: parentId || previous?.parentId,
         thread: previous?.thread || thread,
@@ -190,23 +199,34 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
     const totals = {comment: 0, reply: 0, unknownIdentity: 0, unknownName: 0};
     const matches = [];
     const nameMatches = [];
+    const post = postUrl(location.href) || requestedPost;
+    const add = (row, match) => (match === "account" ? matches : nameMatches).push(row);
     for (const row of rows.values()) {
       totals[row.type]++;
       const profile = row.profile;
-      if (profile && ((account.id && account.id === profile.id) ||
-                      ((!account.id || !profile.id) && account.name && account.name === profile.name))) {
-        matches.push(withParent(row));
-      } else {
-        if ((account.id || account.name) && !((account.id && profile?.id) || (account.name && profile?.name))) {
-          totals.unknownIdentity++;
+      if (targets.some(account => (account.id || account.name) &&
+          !((account.id && profile?.id) || (account.name && profile?.name)))) totals.unknownIdentity++;
+      if (targets.some(account => account.displayName) && !row.name) totals.unknownName++;
+      const {mentions, ...entry} = row;
+      for (const {account, match} of matchTargets(profile, row.name)) {
+        add({...withParent(entry), target: account.label, postUrl: post}, match);
+      }
+      const mentionMatches = new Map();
+      for (const mention of mentions) {
+        for (const {account, match} of matchTargets(mention.profile, mention.name)) {
+          if (mentionMatches.get(account)?.match !== "account") mentionMatches.set(account, {mention, match});
         }
-        if (displayName && !row.name) totals.unknownName++;
-        if (displayName && normalizedName(row.name) === displayName) nameMatches.push(withParent(row));
+      }
+      for (const [account, {mention, match}] of mentionMatches) {
+        add({...withParent(entry), type: "mention", target: account.label, postUrl: post,
+          mentionSource: row.type, subjectUrl: mention.url, mentionedName: mention.name}, match);
       }
     }
+    for (const {confirmed, ...entry} of activity?.findings ?? []) add(entry, confirmed ? "account" : "display_name");
     return {totals, matches, nameMatches, warnings: [...warnings], selectedAll,
-      coverage: {outcome, unopenedBranches: unopened.size, pendingPages,
-        elapsedMs: Date.now() - started, actions}};
+      coverage: {outcome, unopenedBranches: unopened.size, pendingPages, pendingText,
+        elapsedMs: Date.now() - started, actions, reactions: activity?.reactions ?? "unavailable",
+        postMentions: activity?.postMentions ?? "unavailable", reactionProfiles: activity?.reactionProfiles ?? 0}};
   }
 
   function publish() {
@@ -227,6 +247,8 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
       !buttons.some(other => other !== element && element.contains(other)));
     const branches = innermost(replyButtons);
     const pages = innermost(pageButtons);
+    const textButtons = innermost(visibleControls.filter(element => controlMatches(element, moreText) &&
+      rowKeys.has(element.closest(rowSelector))));
     const keys = new Map();
     for (const element of branches) {
       const owner = rowKeys.get(element.closest(rowSelector));
@@ -240,7 +262,8 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
     }
     for (const key of active) unopened.add(key);
     pendingPages = pages.length;
-    return {pending: [...branches, ...pages].filter(enabled), keys};
+    pendingText = textButtons.length;
+    return {pending: [...textButtons, ...branches, ...pages].filter(enabled), keys};
   }
 
   function chooseAction(pending, keys, pane) {
@@ -251,7 +274,8 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
       const knownThread = branch && rows.has(branch);
       const history = knownThread ? threadAttempts : controlAttempts;
       const key = knownThread ? branch : element;
-      const progress = knownThread ? repliesPerThread.get(branch) ?? 0 : branch ? 0 : commentsSeen;
+      const progress = knownThread ? repliesPerThread.get(branch) ?? 0 :
+        branch || controlMatches(element, moreText) ? 0 : commentsSeen;
       const label = controlText(element).join("|");
       const previous = history.get(key);
       const times = previous?.progress === progress && previous.label === label ? previous.times : 0;
@@ -348,14 +372,23 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
         controlMatches(element, moreControl)))) break;
     await pause(400);
   }
-  if (!root || isLogin()) return {error: "Could not find the comments section. Check your access to the post and your Facebook session."};
-  selectedAll = await chooseAll();
+  if (isLogin()) return {error: "Could not access the post with the current Facebook session."};
+  if (root?.isConnected) collect();
+  publish();
+  if (globalThis.readFacebookActivity && !stopped()) {
+    try {
+      activity = await globalThis.readFacebookActivity({post: postUrl(location.href) || requestedPost,
+        targets, root, stopped, accountKeys});
+    } catch {
+      warnings.add("Post reactions or mentions could not be read.");
+    }
+  }
+  if (!stopped()) selectedAll = await chooseAll();
   root = container() ?? root;
 
   let idle = 0;
-  let actions = 0;
   let pageLost = false;
-  while (!stopped() && idle < 4 && actions < 1800 && Date.now() - started < 25 * 60_000) {
+  while (!stopped() && idle < 4 && actions < 1800 && Date.now() - started < maxMs) {
     const currentPage = location.pathname + location.search;
     if (currentPage !== initialPage && !postKeys(location.href).some(key => knownPost.has(key))) {
       warnings.add("The post tab navigated during the scan.");
@@ -385,10 +418,10 @@ globalThis.scanFacebookComments = async (runId, account, requestedPost) => {
     }
   }
   if (!pageLost && root?.isConnected) observeControls(collect());
-  const limited = actions >= 1800 || Date.now() - started >= 25 * 60_000;
+  const limited = actions >= 1800 || Date.now() - started >= maxMs;
   if (stopped()) warnings.add("Scan stopped. Findings are partial.");
   if (limited) warnings.add("The scan reached its time or action limit.");
   if (!rows.size) warnings.add("No comment entries could be detected. Check post access and the comments panel.");
-  const partial = pageLost || !root?.isConnected || !rows.size || !selectedAll || unopened.size || pendingPages;
+  const partial = pageLost || !root?.isConnected || !rows.size || !selectedAll || unopened.size || pendingPages || pendingText;
   return report(stopped() ? "stopped" : limited ? "limited" : partial ? "partial" : "complete");
 };

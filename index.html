@@ -15,20 +15,30 @@
       <div>
         <p class="eyebrow">OSINT / FACEBOOK</p>
         <h1>Thread Recon</h1>
-        <p class="subtitle">Trace comments and replies on a post.</p>
+        <p class="subtitle">Trace comments, replies, reactions and mentions.</p>
       </div>
     </header>
 
     <form id="search" class="surface">
       <h2 class="section-label">01 / Target</h2>
+      <label for="mode">Scan scope</label>
+      <select id="mode">
+        <option value="post">Single Facebook post</option>
+        <option value="page">Facebook page or profile</option>
+      </select>
       <div class="field-title">
-        <label for="post">Post URL</label>
+        <label for="post" id="url-label">Post URL</label>
         <button id="current" class="quiet" type="button">Use current tab</button>
       </div>
       <input id="post" type="url" dir="ltr" required placeholder="https://www.facebook.com/…" autocomplete="off">
-      <label for="account">Account or display name</label>
-      <input id="account" dir="auto" required placeholder="123456789 / @username / Ahrun" autocomplete="off">
-      <p class="hint">Use a numeric ID, @username, profile URL, or display name.</p>
+      <div id="page-settings" hidden>
+        <label for="post-limit">Post limit</label>
+        <input id="post-limit" type="number" min="1" max="100" step="1" value="10">
+        <p class="hint">Scans posts discoverable in the page feed, in the order Facebook shows them.</p>
+      </div>
+      <label for="account">Accounts or display names</label>
+      <textarea id="account" dir="auto" required rows="3" placeholder="123456789&#10;@username" autocomplete="off"></textarea>
+      <p class="hint">One account per line. Use an ID, @username, profile URL, or display name. Up to 100 targets.</p>
       <label class="preference"><input id="notify" type="checkbox" checked> Notify me on the first match</label>
       <div class="actions">
         <button id="start" class="primary">Run scan</button>
@@ -50,9 +60,12 @@
         <dl id="coverage-metrics" class="coverage-metrics">
           <div><dt>Observed unopened reply branches</dt><dd id="unopened">—</dd></div>
           <div><dt>Remaining comment load controls</dt><dd id="pending-pages">—</dd></div>
+          <div><dt>Remaining text expanders</dt><dd id="pending-text">—</dd></div>
+          <div><dt>Reaction profiles inspected</dt><dd id="reaction-profiles">—</dd></div>
         </dl>
         <p class="hint">Counts reflect controls the scanner detected in Facebook.</p>
         <ul id="notes"></ul>
+        <ul id="post-coverage"></ul>
       </details>
     </section>
 
@@ -71,7 +84,12 @@
         <option value="all">All findings</option>
         <option value="comment">Top-level comments</option>
         <option value="reply">Replies only</option>
+        <option value="reaction">Reactions only</option>
+        <option value="mention">Mentions only</option>
       </select>
+      <label for="target-filter" class="visually-hidden">Filter findings by target</label>
+      <select id="target-filter"><option value="">All targets</option></select>
+      <p id="activity-counts" class="hint"></p>
       <p id="visible-count" class="hint"></p>
       <div id="report"></div>
       <p id="copy-status" role="status" class="hint"></p>

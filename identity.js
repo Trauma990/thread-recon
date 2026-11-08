@@ -49,6 +49,51 @@ globalThis.facebookIdentity = (() => {
     return {name: username(input) ?? undefined, displayName: input};
   }
 
+  function targets(value) {
+    if (typeof value !== "string") return [];
+    const labels = [...new Set(value.split(/\r?\n/).map(line => line.trim()).filter(Boolean))];
+    if (labels.length > 100) return [];
+    const accounts = labels.map(label => {
+      const account = target(label);
+      return account && {...account, label};
+    });
+    return accounts.every(Boolean) ? accounts : [];
+  }
+
+  const normalizedDisplay = value => value?.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+
+  function matchAccount(account, profile, displayName) {
+    if (account.id && profile?.id) return account.id === profile.id ? "account" : null;
+    if (account.name && profile?.name && account.name === profile.name) return "account";
+    return account.displayName && normalizedDisplay(account.displayName) === normalizedDisplay(displayName) ? "display_name" : null;
+  }
+
+  function targetMatcher(accounts) {
+    const ids = new Map();
+    const names = new Map();
+    const displays = new Map();
+    const register = (index, key, account) => {
+      if (!key) return;
+      if (!index.has(key)) index.set(key, []);
+      index.get(key).push(account);
+    };
+    for (const account of accounts) {
+      register(ids, account.id, account);
+      register(names, account.name, account);
+      register(displays, normalizedDisplay(account.displayName), account);
+    }
+    return (profile, displayName) => {
+      const candidates = new Set([
+        ...(ids.get(profile?.id) ?? []), ...(names.get(profile?.name) ?? []),
+        ...(displays.get(normalizedDisplay(displayName)) ?? [])
+      ]);
+      return [...candidates].flatMap(account => {
+        const match = matchAccount(account, profile, displayName);
+        return match ? [{account, match}] : [];
+      });
+    };
+  }
+
   function postKeys(value) {
     const url = facebookUrl(value);
     if (!url) return [];
@@ -62,7 +107,7 @@ globalThis.facebookIdentity = (() => {
   }
 
   function postUrl(value) {
-    if (!/^https:\/\//i.test(value.trim())) return null;
+    if (typeof value !== "string" || !/^https:\/\//i.test(value.trim())) return null;
     const url = facebookUrl(value.trim());
     if (!url) return null;
     const shared = /^\/share\/(?:[prv]\/)?[\w-]+\/?$/.test(url.pathname);
@@ -81,5 +126,19 @@ globalThis.facebookIdentity = (() => {
       : `https://www.facebook.com/${account.name}`;
   }
 
-  return {facebookUrl, accountLink, target, postKeys, postUrl, profileUrl};
+  function pageUrl(value) {
+    if (typeof value !== "string" || !/^https:\/\//i.test(value.trim())) return null;
+    const url = facebookUrl(value.trim());
+    if (!url) return null;
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.at(-1)?.toLowerCase() === "posts") parts.pop();
+    url.pathname = "/" + parts.join("/");
+    if (!accountLink(url.href)) return null;
+    const id = url.pathname === "/profile.php" ? url.searchParams.get("id") : null;
+    url.search = id ? "?id=" + id : "";
+    url.hash = "";
+    return url.href;
+  }
+
+  return {facebookUrl, accountLink, target, targets, targetMatcher, postKeys, postUrl, pageUrl, profileUrl};
 })();

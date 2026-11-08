@@ -41,11 +41,13 @@ h3 { font-size: 1rem; }
 .field-title, .actions, .activity-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .field-title { justify-content: space-between; }
 label { font-weight: 700; }
-input:not([type="checkbox"]), select {
+input:not([type="checkbox"]), select, textarea {
   color: inherit; font: inherit; width: 100%; min-height: 39px; padding: 7px 10px;
   border: 1px solid var(--line); border-radius: 5px; background: var(--bg);
 }
 input:not([type="checkbox"]) { display: block; margin: 5px 0 10px; font-family: var(--mono); font-size: .9rem; }
+textarea { display: block; resize: vertical; margin: 5px 0; }
+#mode { margin: 5px 0 10px; }
 input::placeholder { color: var(--muted); opacity: 1; }
 input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
 .hint, footer { color: var(--muted); font-size: .81rem; }
@@ -79,9 +81,10 @@ summary { cursor: pointer; }
 .coverage-metrics div { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
 .coverage-metrics dd { margin: 0; color: var(--accent); font-family: var(--mono); }
 ul { padding-inline-start: 18px; margin: 5px 0 0; }
-#filter { margin-top: 7px; }
+#filter, #target-filter { margin-top: 7px; }
+#post-coverage:empty { display: none; }
 #findings-search { margin: 9px 0 0; }
-#visible-count { margin-top: 6px; }
+#visible-count, #activity-counts { margin-top: 6px; }
 #report { display: grid; gap: 8px; margin-top: 8px; }
 .result { display: grid; gap: 6px; border-inline-start: 2px solid #57a4a8; }
 .tags, .result-links { display: flex; gap: 6px; flex-wrap: wrap; }
